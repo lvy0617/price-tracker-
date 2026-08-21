@@ -93,8 +93,49 @@
   .item-name { font-size: 17px; font-weight: 600; }
   .material-icons { font-family: 'Material Icons'; font-weight: normal; font-style: normal; line-height: 1; }
   .item-icon { font-size: 20px; color: var(--accent); vertical-align: -4px; margin-right: 4px; }
-  .icon-select { flex: 0 0 130px !important; font-family: 'Material Icons', -apple-system, sans-serif; }
-  .icon-opt { font-family: 'Material Icons'; }
+  .icon-picker-wrap { position: relative; flex: 0 0 auto; }
+  .icon-picker-btn {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .icon-picker-btn .material-icons { font-size: 22px; color: var(--accent); }
+  .icon-picker-panel {
+    display: none;
+    position: absolute;
+    top: 50px;
+    left: 0;
+    z-index: 30;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 8px;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+    width: 260px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  }
+  .icon-opt-btn {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid transparent;
+    border-radius: 8px;
+  }
+  .icon-opt-btn .material-icons { font-size: 20px; }
+  .icon-opt-btn:hover { background: var(--accent-light); }
+  .icon-opt-btn.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
   .brand-label { font-size: 11px; color: var(--sub); font-weight: 600; margin-bottom: 2px; }
   .category-badge {
     display: inline-block;
@@ -202,6 +243,9 @@
   .disc-form { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
   .disc-form input { flex: 1; min-width: 110px; }
   .disc-percent { flex: 0 0 92px !important; min-width: 0 !important; }
+  .disc-type { flex: 0 0 110px !important; min-width: 0 !important; }
+  .disc-bogo-wrap { display: none; align-items: center; gap: 4px; font-size: 13px; color: var(--sub); }
+  .disc-qty { flex: 0 0 52px !important; min-width: 0 !important; }
 
   .empty {
     text-align: center;
@@ -219,7 +263,12 @@
 
   <div class="add-item-row">
     <input id="newItemInput" type="text" placeholder="新增品項，例如：衛生紙 10包裝">
-    <select id="newItemIcon" class="icon-select"></select>
+    <div class="icon-picker-wrap">
+      <button type="button" class="icon-picker-btn" onclick="toggleIconPicker()">
+        <span class="material-icons" id="iconPickerPreview">shopping_cart</span>
+      </button>
+      <div class="icon-picker-panel" id="iconPickerPanel"></div>
+    </div>
     <select id="newItemCategory"></select>
     <button onclick="addItem()">新增</button>
   </div>
@@ -235,22 +284,45 @@ const CATEGORIES = ['日用品', '文具', '食品', '飲料', '化妝品', '保
 
 const ICONS = [
   { name: 'shopping_cart', label: '購物車' },
+  { name: 'shopping_bag', label: '購物袋' },
   { name: 'local_grocery_store', label: '超市' },
-  { name: 'fastfood', label: '食品' },
-  { name: 'local_cafe', label: '飲料' },
+  { name: 'fastfood', label: '速食' },
+  { name: 'restaurant', label: '餐點' },
+  { name: 'cake', label: '甜點' },
+  { name: 'icecream', label: '冰品' },
+  { name: 'local_cafe', label: '咖啡' },
+  { name: 'local_bar', label: '飲品' },
   { name: 'spa', label: '保養' },
   { name: 'face', label: '化妝品' },
-  { name: 'medication', label: '保健' },
+  { name: 'brush', label: '刷具' },
+  { name: 'local_pharmacy', label: '藥局' },
   { name: 'checkroom', label: '服飾' },
-  { name: 'devices', label: '家電' },
+  { name: 'devices', label: '3C' },
+  { name: 'laptop', label: '筆電' },
+  { name: 'phone_iphone', label: '手機' },
+  { name: 'tv', label: '電視' },
+  { name: 'headphones', label: '耳機' },
   { name: 'edit', label: '文具' },
+  { name: 'book', label: '書籍' },
   { name: 'pets', label: '寵物' },
+  { name: 'child_care', label: '嬰幼兒' },
+  { name: 'toys', label: '玩具' },
+  { name: 'sports_soccer', label: '運動' },
+  { name: 'fitness_center', label: '健身' },
+  { name: 'home', label: '居家' },
+  { name: 'kitchen', label: '廚房' },
+  { name: 'cleaning_services', label: '清潔' },
+  { name: 'local_laundry_service', label: '洗衣' },
+  { name: 'build', label: '工具' },
+  { name: 'directions_car', label: '汽車' },
+  { name: 'local_gas_station', label: '加油' },
+  { name: 'park', label: '園藝' },
   { name: 'category', label: '其他' }
 ];
 
 const CATEGORY_ICON = {
-  '日用品': 'shopping_cart', '文具': 'edit', '食品': 'fastfood', '飲料': 'local_cafe',
-  '化妝品': 'face', '保健品': 'medication', '家電': 'devices', '服飾': 'checkroom',
+  '日用品': 'cleaning_services', '文具': 'edit', '食品': 'fastfood', '飲料': 'local_cafe',
+  '化妝品': 'face', '保健品': 'local_pharmacy', '家電': 'devices', '服飾': 'checkroom',
   '寵物用品': 'pets', '其他': 'category'
 };
 
@@ -272,17 +344,49 @@ function loadData() {
   render();
 }
 
+let selectedNewIcon = 'shopping_cart';
+
 function initCategorySelect() {
   const sel = document.getElementById('newItemCategory');
   sel.innerHTML = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
 
-  const iconSel = document.getElementById('newItemIcon');
-  iconSel.innerHTML = ICONS.map(i => `<option class="icon-opt" value="${i.name}">${i.label}</option>`).join('');
-
   sel.addEventListener('change', () => {
     const def = CATEGORY_ICON[sel.value];
-    if (def) iconSel.value = def;
+    if (def) pickNewIcon(def);
   });
+
+  document.addEventListener('click', (ev) => {
+    const wrap = document.querySelector('.icon-picker-wrap');
+    const panel = document.getElementById('iconPickerPanel');
+    if (!wrap || !panel) return;
+    if (!wrap.contains(ev.target)) panel.style.display = 'none';
+  });
+}
+
+function toggleIconPicker() {
+  const panel = document.getElementById('iconPickerPanel');
+  if (!panel) return;
+  const opening = panel.style.display === 'none' || !panel.style.display;
+  if (opening) renderIconPickerPanel();
+  panel.style.display = opening ? 'grid' : 'none';
+}
+
+function renderIconPickerPanel() {
+  const panel = document.getElementById('iconPickerPanel');
+  if (!panel) return;
+  panel.innerHTML = ICONS.map(i => `
+    <button type="button" class="icon-opt-btn ${i.name === selectedNewIcon ? 'selected' : ''}" onclick="pickNewIcon('${i.name}')" title="${i.label}">
+      <span class="material-icons">${i.name}</span>
+    </button>
+  `).join('');
+}
+
+function pickNewIcon(name) {
+  selectedNewIcon = name;
+  const preview = document.getElementById('iconPickerPreview');
+  if (preview) preview.textContent = name;
+  const panel = document.getElementById('iconPickerPanel');
+  if (panel) panel.style.display = 'none';
 }
 
 function saveData() {
@@ -308,11 +412,10 @@ function intOnly(el) {
 function addItem() {
   const input = document.getElementById('newItemInput');
   const catSelect = document.getElementById('newItemCategory');
-  const iconSelect = document.getElementById('newItemIcon');
   const name = input.value.trim();
   if (!name) return;
   const category = catSelect.value || '其他';
-  const icon = iconSelect.value || 'category';
+  const icon = selectedNewIcon || 'category';
   items.push({ id: uid(), name, category, icon, open: true, entries: [] });
   input.value = '';
   saveData();
@@ -393,9 +496,10 @@ function computeDiscounted(price, percent) {
   return Math.round(price * percent / 100);
 }
 
-function discountLabel(percent) {
-  if (percent % 10 === 0) return (percent / 10) + '折';
-  return percent + '%';
+function discountLabel(d) {
+  if (d.type === 'bogo') return `買${d.buyQty}送${d.freeQty}`;
+  if (d.percent % 10 === 0) return (d.percent / 10) + '折';
+  return d.percent + '%';
 }
 
 function activeDiscount(entry) {
@@ -412,25 +516,48 @@ function effectivePrice(entry) {
   return entry.price;
 }
 
+function toggleDiscTypeUI(entryId) {
+  const typeSel = document.getElementById('discType-' + entryId);
+  const percentInput = document.getElementById('discPercent-' + entryId);
+  const bogoWrap = document.getElementById('discBogoWrap-' + entryId);
+  if (!typeSel) return;
+  const isBogo = typeSel.value === 'bogo';
+  if (percentInput) percentInput.style.display = isBogo ? 'none' : '';
+  if (bogoWrap) bogoWrap.style.display = isBogo ? 'inline-flex' : 'none';
+}
+
 function addOrUpdateDiscount(itemId, entryId) {
   const it = items.find(i => i.id === itemId);
   const e = it && it.entries.find(x => x.id === entryId);
   if (!e) return;
+  const typeInput = document.getElementById('discType-' + entryId);
   const percentInput = document.getElementById('discPercent-' + entryId);
+  const buyInput = document.getElementById('discBuy-' + entryId);
+  const freeInput = document.getElementById('discFree-' + entryId);
   const startInput = document.getElementById('discStart-' + entryId);
   const endInput = document.getElementById('discEnd-' + entryId);
-  const percent = parseInt(percentInput.value, 10);
-  if (isNaN(percent) || percent < 1 || percent > 99) return;
+  const type = typeInput ? typeInput.value : 'percent';
+
+  let percent, buyQty = null, freeQty = null;
+  if (type === 'bogo') {
+    buyQty = parseInt(buyInput.value, 10);
+    freeQty = parseInt(freeInput.value, 10);
+    if (isNaN(buyQty) || buyQty < 1 || isNaN(freeQty) || freeQty < 1) return;
+    percent = Math.round((buyQty / (buyQty + freeQty)) * 100);
+  } else {
+    percent = parseInt(percentInput.value, 10);
+    if (isNaN(percent) || percent < 1 || percent > 99) return;
+  }
   const start = startInput.value || todayStr();
   const end = endInput.value || null;
 
   if (!e.discounts) e.discounts = [];
   if (e.editingDiscountId) {
     const d = e.discounts.find(x => x.id === e.editingDiscountId);
-    if (d) { d.percent = percent; d.start = start; d.end = end; }
+    if (d) { d.type = type; d.percent = percent; d.buyQty = buyQty; d.freeQty = freeQty; d.start = start; d.end = end; }
     e.editingDiscountId = null;
   } else {
-    e.discounts.push({ id: uid(), percent, start, end });
+    e.discounts.push({ id: uid(), type, percent, buyQty, freeQty, start, end });
   }
   saveData();
   render();
@@ -445,12 +572,19 @@ function editDiscount(itemId, entryId, discId) {
   render();
   const d = e.discounts.find(x => x.id === discId);
   if (d) {
+    const typeEl = document.getElementById('discType-' + entryId);
     const pEl = document.getElementById('discPercent-' + entryId);
+    const buyEl = document.getElementById('discBuy-' + entryId);
+    const freeEl = document.getElementById('discFree-' + entryId);
     const sEl = document.getElementById('discStart-' + entryId);
     const eEl = document.getElementById('discEnd-' + entryId);
+    if (typeEl) typeEl.value = d.type || 'percent';
     if (pEl) pEl.value = d.percent;
+    if (buyEl) buyEl.value = d.buyQty || '';
+    if (freeEl) freeEl.value = d.freeQty || '';
     if (sEl) sEl.value = d.start;
     if (eEl) eEl.value = d.end || '';
+    toggleDiscTypeUI(entryId);
   }
 }
 
@@ -511,9 +645,10 @@ function discountPanelHtml(it, e) {
   const rows = list.map(d => {
     const computed = computeDiscounted(e.price, d.percent);
     const isEditing = e.editingDiscountId === d.id;
+    const detail = d.type === 'bogo' ? `（相當於${d.percent}%）` : `（${d.percent}%）`;
     return `
       <div class="disc-item ${isEditing ? 'editing' : ''}">
-        <span>${discountLabel(d.percent)}（${d.percent}%）→ $${computed}</span>
+        <span>${discountLabel(d)}${detail} → $${computed}</span>
         <span class="disc-date">${d.start}${d.end ? ' ~ ' + d.end : ' 起，無期限'}</span>
         <span class="disc-actions">
           <button class="mini" onclick="editDiscount('${it.id}','${e.id}','${d.id}')">改</button>
@@ -526,7 +661,15 @@ function discountPanelHtml(it, e) {
     <div class="disc-panel">
       ${rows || '<div class="disc-empty">還沒有折扣記錄</div>'}
       <div class="disc-form">
+        <select id="discType-${e.id}" class="disc-type" onchange="toggleDiscTypeUI('${e.id}')">
+          <option value="percent">一般折扣</option>
+          <option value="bogo">買幾送幾</option>
+        </select>
         <input id="discPercent-${e.id}" class="disc-percent" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="填90=9折">
+        <span id="discBogoWrap-${e.id}" class="disc-bogo-wrap">
+          買<input id="discBuy-${e.id}" class="disc-qty" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="1">
+          送<input id="discFree-${e.id}" class="disc-qty" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="1">
+        </span>
         <input id="discStart-${e.id}" type="date" value="${todayStr()}">
         <input id="discEnd-${e.id}" type="date">
         <button class="small" onclick="addOrUpdateDiscount('${it.id}','${e.id}')">${e.editingDiscountId ? '更新' : '新增'}</button>
@@ -589,7 +732,7 @@ function render() {
       .map(e => {
         const ad = activeDiscount(e);
         const priceCell = ad
-          ? `<del class="orig">$${e.price}</del>$${computeDiscounted(e.price, ad.percent)} <span class="disc-tag">${discountLabel(ad.percent)}</span>`
+          ? `<del class="orig">$${e.price}</del>$${computeDiscounted(e.price, ad.percent)} <span class="disc-tag">${discountLabel(ad)}</span>`
           : `$${e.price}`;
         const up = unitPriceOf(e);
         const isBest = bestIds.has(e.id);
