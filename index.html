@@ -32,6 +32,29 @@
   .material-icons { font-family: 'Material Icons'; font-weight: normal; font-style: normal; line-height: 1; }
   .item-icon { font-size: 20px; color: var(--accent); vertical-align: -4px; margin-right: 4px; }
 
+  .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .tab-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 10px 0;
+    font-size: 15px;
+    color: var(--sub);
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .promo-badge {
+    font-size: 11px;
+    background: #b8860b;
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 999px;
+    margin-left: 4px;
+    white-space: nowrap;
+    cursor: help;
+  }
+
   .add-item-row {
     display: flex;
     gap: 8px;
@@ -319,32 +342,50 @@
   <h1>🛒 比價小幫手</h1>
   <div class="sub">記錄同一樣東西在不同店家的價格，自動幫你標出最便宜的</div>
 
-  <div class="add-item-row">
-    <input id="newItemInput" type="text" placeholder="新增品項，例如：衛生紙 10包裝">
-    <div class="icon-picker-wrap">
-      <button type="button" class="icon-picker-btn" onclick="toggleIconPicker('new')">
-        <span class="material-icons" id="iconPickerPreview">shopping_cart</span>
-      </button>
-      <div class="icon-picker-panel" id="iconPickerPanel"></div>
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tabHome" onclick="switchScreen('home')">首頁</button>
+    <button class="tab-btn" id="tabStore" onclick="switchScreen('store')">店家</button>
+  </div>
+
+  <div id="homeScreen">
+    <div class="add-item-row">
+      <input id="newItemInput" type="text" placeholder="新增品項，例如：衛生紙 10包裝">
+      <div class="icon-picker-wrap">
+        <button type="button" class="icon-picker-btn" onclick="toggleIconPicker('new')">
+          <span class="material-icons" id="iconPickerPreview">shopping_cart</span>
+        </button>
+        <div class="icon-picker-panel" id="iconPickerPanel"></div>
+      </div>
+      <select id="newItemCategory"></select>
+      <button onclick="addItem()">新增</button>
     </div>
-    <select id="newItemCategory"></select>
-    <button onclick="addItem()">新增</button>
+
+    <div class="search-row">
+      <input id="searchInput" type="text" placeholder="搜尋品項名稱..." oninput="onSearchInput(this.value)">
+      <select id="sortSelect" onchange="onSortChange(this.value)">
+        <option value="default">預設排序</option>
+        <option value="name">依名稱</option>
+        <option value="price">依最低價</option>
+        <option value="updated">依最近更新</option>
+      </select>
+    </div>
+
+    <div class="filter-row" id="filterRow"></div>
+
+    <div id="itemList"></div>
+    <div id="emptyState" class="empty" style="display:none;"></div>
   </div>
 
-  <div class="search-row">
-    <input id="searchInput" type="text" placeholder="搜尋品項名稱..." oninput="onSearchInput(this.value)">
-    <select id="sortSelect" onchange="onSortChange(this.value)">
-      <option value="default">預設排序</option>
-      <option value="name">依名稱</option>
-      <option value="price">依最低價</option>
-      <option value="updated">依最近更新</option>
-    </select>
+  <div id="storeScreen" style="display:none;">
+    <div class="add-item-row">
+      <input id="newStoreInput" type="text" placeholder="新增店家名稱，例如：全聯" list="allStores">
+      <button onclick="addStore()">新增</button>
+    </div>
+    <div class="unit-hint">在這裡管理各店家的滿額優惠（例如滿NT$399打9折、滿NT$500折NT$100），會提醒你哪些店現在有活動，但不會自動算進單一商品的比價裡</div>
+    <div id="storeList"></div>
+    <div id="storeEmptyState" class="empty" style="display:none;"></div>
   </div>
 
-  <div class="filter-row" id="filterRow"></div>
-
-  <div id="itemList"></div>
-  <div id="emptyState" class="empty" style="display:none;"></div>
   <datalist id="allStores"></datalist>
 </div>
 
@@ -405,6 +446,7 @@ const CATEGORY_ICON = {
 };
 
 let items = [];
+let stores = [];
 let loaded = false;
 let currentFilter = 'all';
 let searchQuery = '';
@@ -412,8 +454,10 @@ let sortMode = 'default';
 let selectedNewIcon = 'shopping_cart';
 let currentChartItemId = null;
 let currentChartRange = '1m';
+let currentScreen = 'home';
 
 const STORAGE_KEY = 'price-tracker-items';
+const STORE_STORAGE_KEY = 'price-tracker-stores';
 
 function loadData() {
   try {
@@ -422,9 +466,16 @@ function loadData() {
   } catch (e) {
     items = [];
   }
+  try {
+    const rawStores = localStorage.getItem(STORE_STORAGE_KEY);
+    stores = rawStores ? JSON.parse(rawStores) : [];
+  } catch (e) {
+    stores = [];
+  }
   loaded = true;
   initCategorySelect();
   render();
+  renderStores();
 }
 
 function initCategorySelect() {
@@ -446,6 +497,15 @@ function initCategorySelect() {
   });
 }
 
+function switchScreen(screen) {
+  currentScreen = screen;
+  document.getElementById('homeScreen').style.display = screen === 'home' ? 'block' : 'none';
+  document.getElementById('storeScreen').style.display = screen === 'store' ? 'block' : 'none';
+  document.getElementById('tabHome').classList.toggle('active', screen === 'home');
+  document.getElementById('tabStore').classList.toggle('active', screen === 'store');
+  if (screen === 'store') renderStores();
+}
+
 function saveData() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
@@ -453,6 +513,15 @@ function saveData() {
     console.error('儲存失敗', e);
   }
 }
+
+function saveStores() {
+  try {
+    localStorage.setItem(STORE_STORAGE_KEY, JSON.stringify(stores));
+  } catch (e) {
+    console.error('儲存失敗', e);
+  }
+}
+
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -700,7 +769,13 @@ function computeDiscounted(price, percent) {
   return Math.round(price * percent / 100);
 }
 
+function discountPrice(basePrice, d) {
+  if (d.type === 'member') return d.memberPrice;
+  return computeDiscounted(basePrice, d.percent);
+}
+
 function discountLabel(d) {
+  if (d.type === 'member') return '會員價';
   if (d.type === 'bogo') return `買${d.buyQty}送${d.freeQty}`;
   if (d.percent % 10 === 0) return (d.percent / 10) + '折';
   return d.percent + '%';
@@ -710,13 +785,13 @@ function activeDiscount(entry) {
   const t = todayStr();
   const active = (entry.discounts || []).filter(d => d.start <= t && (!d.end || d.end >= t));
   if (!active.length) return null;
-  active.sort((a, b) => (entry.price * a.percent) - (entry.price * b.percent));
+  active.sort((a, b) => discountPrice(entry.price, a) - discountPrice(entry.price, b));
   return active[0];
 }
 
 function effectivePrice(entry) {
   const d = activeDiscount(entry);
-  if (d) return computeDiscounted(entry.price, d.percent);
+  if (d) return discountPrice(entry.price, d);
   return entry.price;
 }
 
@@ -724,10 +799,12 @@ function toggleDiscTypeUI(entryId) {
   const typeSel = document.getElementById('discType-' + entryId);
   const percentInput = document.getElementById('discPercent-' + entryId);
   const bogoWrap = document.getElementById('discBogoWrap-' + entryId);
+  const memberInput = document.getElementById('discMemberPrice-' + entryId);
   if (!typeSel) return;
-  const isBogo = typeSel.value === 'bogo';
-  if (percentInput) percentInput.style.display = isBogo ? 'none' : '';
-  if (bogoWrap) bogoWrap.style.display = isBogo ? 'inline-flex' : 'none';
+  const v = typeSel.value;
+  if (percentInput) percentInput.style.display = v === 'percent' ? '' : 'none';
+  if (bogoWrap) bogoWrap.style.display = v === 'bogo' ? 'inline-flex' : 'none';
+  if (memberInput) memberInput.style.display = v === 'member' ? '' : 'none';
 }
 
 function addOrUpdateDiscount(itemId, entryId) {
@@ -738,16 +815,20 @@ function addOrUpdateDiscount(itemId, entryId) {
   const percentInput = document.getElementById('discPercent-' + entryId);
   const buyInput = document.getElementById('discBuy-' + entryId);
   const freeInput = document.getElementById('discFree-' + entryId);
+  const memberInput = document.getElementById('discMemberPrice-' + entryId);
   const startInput = document.getElementById('discStart-' + entryId);
   const endInput = document.getElementById('discEnd-' + entryId);
   const type = typeInput ? typeInput.value : 'percent';
 
-  let percent, buyQty = null, freeQty = null;
+  let percent = null, buyQty = null, freeQty = null, memberPrice = null;
   if (type === 'bogo') {
     buyQty = parseInt(buyInput.value, 10);
     freeQty = parseInt(freeInput.value, 10);
     if (isNaN(buyQty) || buyQty < 1 || isNaN(freeQty) || freeQty < 1) return;
     percent = Math.round((buyQty / (buyQty + freeQty)) * 100);
+  } else if (type === 'member') {
+    memberPrice = parseInt(memberInput.value, 10);
+    if (isNaN(memberPrice) || memberPrice < 0) return;
   } else {
     percent = parseInt(percentInput.value, 10);
     if (isNaN(percent) || percent < 1 || percent > 99) return;
@@ -758,10 +839,10 @@ function addOrUpdateDiscount(itemId, entryId) {
   if (!e.discounts) e.discounts = [];
   if (e.editingDiscountId) {
     const d = e.discounts.find(x => x.id === e.editingDiscountId);
-    if (d) { d.type = type; d.percent = percent; d.buyQty = buyQty; d.freeQty = freeQty; d.start = start; d.end = end; }
+    if (d) { d.type = type; d.percent = percent; d.buyQty = buyQty; d.freeQty = freeQty; d.memberPrice = memberPrice; d.start = start; d.end = end; }
     e.editingDiscountId = null;
   } else {
-    e.discounts.push({ id: uid(), type, percent, buyQty, freeQty, start, end });
+    e.discounts.push({ id: uid(), type, percent, buyQty, freeQty, memberPrice, start, end });
   }
   saveData();
   render();
@@ -780,12 +861,14 @@ function editDiscount(itemId, entryId, discId) {
     const pEl = document.getElementById('discPercent-' + entryId);
     const buyEl = document.getElementById('discBuy-' + entryId);
     const freeEl = document.getElementById('discFree-' + entryId);
+    const memberEl = document.getElementById('discMemberPrice-' + entryId);
     const sEl = document.getElementById('discStart-' + entryId);
     const eEl = document.getElementById('discEnd-' + entryId);
     if (typeEl) typeEl.value = d.type || 'percent';
     if (pEl) pEl.value = d.percent;
     if (buyEl) buyEl.value = d.buyQty || '';
     if (freeEl) freeEl.value = d.freeQty || '';
+    if (memberEl) memberEl.value = d.memberPrice != null ? d.memberPrice : '';
     if (sEl) sEl.value = d.start;
     if (eEl) eEl.value = d.end || '';
     toggleDiscTypeUI(entryId);
@@ -861,9 +944,9 @@ function itemLatestDate(it) {
 function discountPanelHtml(it, e) {
   const list = (e.discounts || []).slice().sort((a, b) => a.start.localeCompare(b.start));
   const rows = list.map(d => {
-    const computed = computeDiscounted(e.price, d.percent);
+    const computed = discountPrice(e.price, d);
     const isEditing = e.editingDiscountId === d.id;
-    const detail = d.type === 'bogo' ? `（相當於${d.percent}%）` : `（${d.percent}%）`;
+    const detail = d.type === 'bogo' ? `（相當於${d.percent}%）` : d.type === 'member' ? '' : `（${d.percent}%）`;
     return `
       <div class="disc-item ${isEditing ? 'editing' : ''}">
         <span>${discountLabel(d)}${detail} → $${computed}</span>
@@ -882,12 +965,14 @@ function discountPanelHtml(it, e) {
         <select id="discType-${e.id}" class="disc-type" onchange="toggleDiscTypeUI('${e.id}')">
           <option value="percent">一般折扣</option>
           <option value="bogo">買幾送幾</option>
+          <option value="member">會員價</option>
         </select>
         <input id="discPercent-${e.id}" class="disc-percent" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="填90=9折">
         <span id="discBogoWrap-${e.id}" class="disc-bogo-wrap">
           買<input id="discBuy-${e.id}" class="disc-qty" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="1">
           送<input id="discFree-${e.id}" class="disc-qty" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="1">
         </span>
+        <input id="discMemberPrice-${e.id}" class="disc-percent" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="會員價NT$" style="display:none;">
         <input id="discStart-${e.id}" type="date" value="${todayStr()}">
         <input id="discEnd-${e.id}" type="date">
         <button class="small" onclick="addOrUpdateDiscount('${it.id}','${e.id}')">${e.editingDiscountId ? '更新' : '新增'}</button>
@@ -895,6 +980,188 @@ function discountPanelHtml(it, e) {
       </div>
     </div>
   `;
+}
+
+/* ---------- stores & threshold promos ---------- */
+
+function addStore() {
+  const input = document.getElementById('newStoreInput');
+  const name = input.value.trim();
+  if (!name) return;
+  if (stores.some(s => s.name === name)) { input.value = ''; return; }
+  stores.push({ id: uid(), name, open: true, promos: [] });
+  input.value = '';
+  saveStores();
+  renderStores();
+}
+
+function deleteStore(id) {
+  stores = stores.filter(s => s.id !== id);
+  saveStores();
+  renderStores();
+}
+
+function toggleStoreOpen(id) {
+  const s = stores.find(x => x.id === id);
+  if (s) s.open = !s.open;
+  renderStores();
+}
+
+function togglePromoTypeUI(storeId) {
+  const typeSel = document.getElementById('promoType-' + storeId);
+  const valueInput = document.getElementById('promoValue-' + storeId);
+  if (!typeSel || !valueInput) return;
+  valueInput.placeholder = typeSel.value === 'percent' ? '打幾%，如90=9折' : '折抵NT$多少';
+}
+
+function addOrUpdatePromo(storeId) {
+  const s = stores.find(x => x.id === storeId);
+  if (!s) return;
+  const typeInput = document.getElementById('promoType-' + storeId);
+  const thresholdInput = document.getElementById('promoThreshold-' + storeId);
+  const valueInput = document.getElementById('promoValue-' + storeId);
+  const startInput = document.getElementById('promoStart-' + storeId);
+  const endInput = document.getElementById('promoEnd-' + storeId);
+  const type = typeInput.value;
+  const threshold = parseInt(thresholdInput.value, 10);
+  const value = parseInt(valueInput.value, 10);
+  if (isNaN(threshold) || threshold <= 0 || isNaN(value) || value <= 0) return;
+  if (type === 'percent' && (value < 1 || value > 99)) return;
+  const start = startInput.value || todayStr();
+  const end = endInput.value || null;
+
+  if (!s.promos) s.promos = [];
+  if (s.editingPromoId) {
+    const p = s.promos.find(x => x.id === s.editingPromoId);
+    if (p) { p.type = type; p.threshold = threshold; p.value = value; p.start = start; p.end = end; }
+    s.editingPromoId = null;
+  } else {
+    s.promos.push({ id: uid(), type, threshold, value, start, end });
+  }
+  saveStores();
+  renderStores();
+}
+
+function editPromo(storeId, promoId) {
+  const s = stores.find(x => x.id === storeId);
+  if (!s) return;
+  s.editingPromoId = promoId;
+  s.open = true;
+  renderStores();
+  const p = s.promos.find(x => x.id === promoId);
+  if (p) {
+    const typeEl = document.getElementById('promoType-' + storeId);
+    const thEl = document.getElementById('promoThreshold-' + storeId);
+    const valEl = document.getElementById('promoValue-' + storeId);
+    const sEl = document.getElementById('promoStart-' + storeId);
+    const eEl = document.getElementById('promoEnd-' + storeId);
+    if (typeEl) typeEl.value = p.type;
+    if (thEl) thEl.value = p.threshold;
+    if (valEl) valEl.value = p.value;
+    if (sEl) sEl.value = p.start;
+    if (eEl) eEl.value = p.end || '';
+    togglePromoTypeUI(storeId);
+  }
+}
+
+function cancelEditPromo(storeId) {
+  const s = stores.find(x => x.id === storeId);
+  if (!s) return;
+  s.editingPromoId = null;
+  renderStores();
+}
+
+function deletePromo(storeId, promoId) {
+  const s = stores.find(x => x.id === storeId);
+  if (!s) return;
+  s.promos = (s.promos || []).filter(p => p.id !== promoId);
+  if (s.editingPromoId === promoId) s.editingPromoId = null;
+  saveStores();
+  renderStores();
+}
+
+function promoLabel(p) {
+  if (p.type === 'percent') {
+    const foldLabel = p.value % 10 === 0 ? (p.value / 10) + '折' : p.value + '%';
+    return `滿NT$${p.threshold} 打${foldLabel}`;
+  }
+  return `滿NT$${p.threshold} 折NT$${p.value}`;
+}
+
+function activeStorePromos(store) {
+  const t = todayStr();
+  return (store.promos || []).filter(p => p.start <= t && (!p.end || p.end >= t));
+}
+
+function storeActivePromo(storeName) {
+  const s = stores.find(x => x.name === storeName);
+  if (!s) return null;
+  const active = activeStorePromos(s);
+  return active.length ? active[0] : null;
+}
+
+function renderStores() {
+  const list = document.getElementById('storeList');
+  const empty = document.getElementById('storeEmptyState');
+  if (!list || !empty) return;
+
+  if (stores.length === 0) {
+    list.innerHTML = '';
+    empty.style.display = 'block';
+    empty.textContent = '還沒有任何店家，先新增一個吧！';
+    return;
+  }
+  empty.style.display = 'none';
+
+  list.innerHTML = stores.map(s => {
+    const promos = (s.promos || []).slice().sort((a, b) => a.start.localeCompare(b.start));
+    const t = todayStr();
+    const promoRows = promos.map(p => {
+      const isEditing = s.editingPromoId === p.id;
+      const isActive = p.start <= t && (!p.end || p.end >= t);
+      return `
+        <div class="disc-item ${isEditing ? 'editing' : ''}">
+          <span>${escapeHtml(promoLabel(p))}${isActive ? ' <span class="promo-badge">生效中</span>' : ''}</span>
+          <span class="disc-date">${p.start}${p.end ? ' ~ ' + p.end : ' 起，無期限'}</span>
+          <span class="disc-actions">
+            <button class="mini" onclick="editPromo('${s.id}','${p.id}')">改</button>
+            <button class="mini del" onclick="deletePromo('${s.id}','${p.id}')">刪</button>
+          </span>
+        </div>`;
+    }).join('');
+
+    return `
+      <div class="item-card ${s.open ? 'open' : ''}">
+        <div class="item-head" onclick="toggleStoreOpen('${s.id}')">
+          <div class="item-name-wrap">
+            <div class="item-name"><span class="material-icons item-icon">store</span>${escapeHtml(s.name)}</div>
+            <div class="item-best" style="color:var(--sub);">${promos.length ? `共 ${promos.length} 筆優惠` : '還沒有設定優惠'}</div>
+          </div>
+          <div class="item-actions">
+            <button class="del-btn" style="font-size:15px;" onclick="event.stopPropagation(); deleteStore('${s.id}')">🗑</button>
+            <span class="chevron">▾</span>
+          </div>
+        </div>
+        <div class="item-body">
+          <div class="disc-panel">
+            ${promoRows || '<div class="disc-empty">還沒有優惠記錄</div>'}
+            <div class="disc-form">
+              <select id="promoType-${s.id}" class="disc-type" onchange="togglePromoTypeUI('${s.id}')">
+                <option value="percent">滿額打折</option>
+                <option value="amount">滿額折抵</option>
+              </select>
+              <input id="promoThreshold-${s.id}" class="disc-percent" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="滿NT$多少">
+              <input id="promoValue-${s.id}" class="disc-percent" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="打幾%，如90=9折">
+              <input id="promoStart-${s.id}" type="date" value="${todayStr()}">
+              <input id="promoEnd-${s.id}" type="date">
+              <button class="small" onclick="addOrUpdatePromo('${s.id}')">${s.editingPromoId ? '更新' : '新增'}</button>
+              ${s.editingPromoId ? `<button class="small ghost" onclick="cancelEditPromo('${s.id}')">取消</button>` : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 /* ---------- price trend chart ---------- */
@@ -1068,7 +1335,7 @@ function render() {
       .map(e => {
         const ad = activeDiscount(e);
         const priceCell = ad
-          ? `<del class="orig">$${e.price}</del>$${computeDiscounted(e.price, ad.percent)} <span class="disc-tag">${discountLabel(ad)}</span>`
+          ? `<del class="orig">$${e.price}</del>$${discountPrice(e.price, ad)} <span class="disc-tag">${discountLabel(ad)}</span>`
           : `$${e.price}`;
         const up = unitPriceOf(e);
         const isBest = bestIds.has(e.id);
@@ -1076,12 +1343,14 @@ function render() {
           ? `<span class="unit-price ${isBest ? 'best' : ''}">$${up.toFixed(2)}/${escapeHtml(e.unit ? e.unit.trim() : '單位')}</span>`
           : '<span class="unit-price">-</span>';
         const discCount = (e.discounts || []).length;
+        const storePromo = storeActivePromo(e.store);
+        const promoBadge = storePromo ? `<span class="promo-badge" title="${escapeHtml(promoLabel(storePromo))}">🏷️優惠</span>` : '';
 
         let rowHtml = `
         <tr class="${isBest ? 'cheapest' : ''}">
           <td class="store">
             ${e.brand ? `<div class="brand-label">${escapeHtml(e.brand)}</div>` : ''}
-            ${escapeHtml(e.store)}<span class="channel-tag">${e.channel === '線上通路' ? '🌐線上' : '🏬門市'}</span>
+            ${escapeHtml(e.store)}<span class="channel-tag">${e.channel === '線上通路' ? '🌐線上' : '🏬門市'}</span>${promoBadge}
             ${e.note ? `<div class="note-label">📝 ${escapeHtml(e.note)}</div>` : ''}
           </td>
           <td class="price">${priceCell}</td>
@@ -1173,6 +1442,9 @@ function render() {
 
 document.getElementById('newItemInput').addEventListener('keydown', e => {
   if (e.key === 'Enter') addItem();
+});
+document.getElementById('newStoreInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addStore();
 });
 
 loadData();
