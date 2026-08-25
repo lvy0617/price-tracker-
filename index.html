@@ -278,6 +278,16 @@
   }
   .disc-item:last-of-type { border-bottom: none; }
   .disc-item.editing { background: var(--accent-light); border-radius: 8px; padding: 6px 8px; }
+  .disc-item.disabled { opacity: 0.55; }
+  .disc-off-tag {
+    font-size: 11px;
+    background: var(--sub);
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 999px;
+    margin-left: 4px;
+    white-space: nowrap;
+  }
   .disc-date { color: var(--sub); font-size: 12px; }
   .disc-actions { display: flex; gap: 4px; }
   .disc-empty { color: var(--sub); font-size: 13px; padding: 4px 2px; }
@@ -796,7 +806,7 @@ function discountLabel(d) {
 
 function activeDiscount(entry) {
   const t = todayStr();
-  const active = (entry.discounts || []).filter(d => d.start <= t && (!d.end || d.end >= t));
+  const active = (entry.discounts || []).filter(d => d.enabled !== false && d.start <= t && (!d.end || d.end >= t));
   if (!active.length) return null;
   active.sort((a, b) => discountPrice(entry.price, a) - discountPrice(entry.price, b));
   return active[0];
@@ -906,6 +916,17 @@ function deleteDiscount(itemId, entryId, discId) {
   render();
 }
 
+function toggleDiscountEnabled(itemId, entryId, discId) {
+  const it = items.find(i => i.id === itemId);
+  const e = it && it.entries.find(x => x.id === entryId);
+  if (!e) return;
+  const d = (e.discounts || []).find(x => x.id === discId);
+  if (!d) return;
+  d.enabled = d.enabled === false ? true : false;
+  saveData();
+  render();
+}
+
 /* ---------- unit price analysis ---------- */
 
 function unitPriceOf(e) {
@@ -959,12 +980,14 @@ function discountPanelHtml(it, e) {
   const rows = list.map(d => {
     const computed = discountPrice(e.price, d);
     const isEditing = e.editingDiscountId === d.id;
+    const isDisabled = d.enabled === false;
     const detail = d.type === 'bogo' ? `（相當於${d.percent}%）` : d.type === 'member' ? '' : `（${d.percent}%）`;
     return `
-      <div class="disc-item ${isEditing ? 'editing' : ''}">
-        <span>${discountLabel(d)}${detail} → $${computed}</span>
+      <div class="disc-item ${isEditing ? 'editing' : ''} ${isDisabled ? 'disabled' : ''}">
+        <span>${discountLabel(d)}${detail} → $${computed}${isDisabled ? ' <span class="disc-off-tag">已關閉</span>' : ''}</span>
         <span class="disc-date">${d.start}${d.end ? ' ~ ' + d.end : ' 起，無期限'}</span>
         <span class="disc-actions">
+          <button class="mini" onclick="toggleDiscountEnabled('${it.id}','${e.id}','${d.id}')">${isDisabled ? '開啟' : '關閉'}</button>
           <button class="mini" onclick="editDiscount('${it.id}','${e.id}','${d.id}')">改</button>
           <button class="mini del" onclick="deleteDiscount('${it.id}','${e.id}','${d.id}')">刪</button>
         </span>
