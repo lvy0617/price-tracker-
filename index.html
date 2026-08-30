@@ -137,6 +137,27 @@
   .icon-opt-btn.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
 
   .search-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .backup-row { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--good);
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 999px;
+    font-size: 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s, transform 0.25s;
+    z-index: 200;
+    max-width: 90vw;
+    text-align: center;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   .search-row input { flex: 1; min-width: 160px; }
   .search-row select { flex: 0 0 130px; }
 
@@ -357,6 +378,12 @@
     <button class="tab-btn" id="tabStore" onclick="switchScreen('store')">店家</button>
   </div>
 
+  <div class="backup-row">
+    <button class="small ghost" onclick="exportBackup()">⬇️ 匯出備份</button>
+    <button class="small ghost" onclick="triggerImport()">⬆️ 匯入備份</button>
+    <input type="file" id="importFileInput" accept="application/json" style="display:none;" onchange="handleImportFile(event)">
+  </div>
+
   <div id="homeScreen">
     <div class="add-item-row">
       <input id="newItemInput" type="text" placeholder="新增品項，例如：衛生紙 10包裝">
@@ -378,6 +405,7 @@
         <option value="price">依最低價</option>
         <option value="updated">依最近更新</option>
       </select>
+      <button class="small ghost" id="collapseAllBtn" onclick="toggleCollapseAll()">全部收合</button>
     </div>
 
     <div class="filter-row" id="filterRow"></div>
@@ -407,6 +435,8 @@
   </div>
   <div class="chart-scroll" id="chartArea"></div>
 </div>
+
+<div id="toast" class="toast"></div>
 
 <script>
 const CATEGORIES = ['日用品', '文具', '食品', '飲料', '化妝品', '保健品', '家電', '服飾', '寵物用品', '其他'];
@@ -545,6 +575,67 @@ function saveStores() {
   }
 }
 
+let toastTimer = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.classList.remove('show'); }, 2600);
+}
+
+function exportBackup() {
+  const data = { items, stores, exportedAt: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `price-tracker-backup-${todayStr()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function triggerImport() {
+  const input = document.getElementById('importFileInput');
+  if (input) input.click();
+}
+
+function handleImportFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data || !Array.isArray(data.items)) {
+        alert('檔案格式不正確，無法匯入');
+        return;
+      }
+      if (!confirm('匯入將會覆蓋目前所有資料，確定要繼續嗎？')) return;
+      items = data.items || [];
+      stores = data.stores || [];
+      saveData();
+      saveStores();
+      render();
+      renderStores();
+      showToast('✅ 匯入完成');
+    } catch (err) {
+      alert('檔案讀取失敗，請確認是正確的備份檔');
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function toggleCollapseAll() {
+  const anyOpen = items.some(it => it.open);
+  items.forEach(it => { it.open = !anyOpen; });
+  saveData();
+  render();
+}
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -624,6 +715,9 @@ function addItem() {
 }
 
 function deleteItem(id) {
+  const it = items.find(i => i.id === id);
+  const name = it ? it.name : '這個品項';
+  if (!confirm(`確定要刪除「${name}」嗎？裡面的所有價格記錄也會一併刪除，此動作無法復原。`)) return;
   items = items.filter(it => it.id !== id);
   saveData();
   render();
@@ -714,6 +808,10 @@ function addEntry(itemId) {
   const unit = (unitInput && unitInput.value.trim()) ? unitInput.value.trim() : null;
   const note = (noteInput && noteInput.value.trim()) ? noteInput.value.trim() : null;
 
+  const otherEntries = it.editingEntryId ? it.entries.filter(x => x.id !== it.editingEntryId) : it.entries;
+  const priorMin = otherEntries.length ? Math.min(...otherEntries.map(x => x.price)) : null;
+  const isNewLow = priorMin !== null && price < priorMin;
+
   if (it.editingEntryId) {
     const e = it.entries.find(x => x.id === it.editingEntryId);
     if (e) {
@@ -736,6 +834,7 @@ function addEntry(itemId) {
   if (noteInput) noteInput.value = '';
   saveData();
   render();
+  if (isNewLow) showToast(`🎉 這是「${it.name}」記錄過最低的價格！`);
   const newStoreInput = document.getElementById('store-' + itemId);
   if (newStoreInput) newStoreInput.focus();
 }
@@ -773,6 +872,7 @@ function cancelEditEntry(itemId) {
 function deleteEntry(itemId, entryId) {
   const it = items.find(i => i.id === itemId);
   if (!it) return;
+  if (!confirm('確定要刪除這筆價格記錄嗎？此動作無法復原。')) return;
   it.entries = it.entries.filter(e => e.id !== entryId);
   saveData();
   render();
@@ -910,6 +1010,7 @@ function deleteDiscount(itemId, entryId, discId) {
   const it = items.find(i => i.id === itemId);
   const e = it && it.entries.find(x => x.id === entryId);
   if (!e) return;
+  if (!confirm('確定要刪除這筆折扣嗎？')) return;
   e.discounts = (e.discounts || []).filter(x => x.id !== discId);
   if (e.editingDiscountId === discId) e.editingDiscountId = null;
   saveData();
@@ -1032,6 +1133,9 @@ function addStore() {
 }
 
 function deleteStore(id) {
+  const s = stores.find(x => x.id === id);
+  const name = s ? s.name : '這家店';
+  if (!confirm(`確定要刪除「${name}」嗎？裡面設定的優惠也會一併刪除，此動作無法復原。`)) return;
   stores = stores.filter(s => s.id !== id);
   saveStores();
   renderStores();
@@ -1110,6 +1214,7 @@ function cancelEditPromo(storeId) {
 function deletePromo(storeId, promoId) {
   const s = stores.find(x => x.id === storeId);
   if (!s) return;
+  if (!confirm('確定要刪除這筆優惠嗎？')) return;
   s.promos = (s.promos || []).filter(p => p.id !== promoId);
   if (s.editingPromoId === promoId) s.editingPromoId = null;
   saveStores();
@@ -1322,6 +1427,12 @@ function render() {
   if (!loaded) return;
 
   renderFilterRow();
+
+  const collapseBtn = document.getElementById('collapseAllBtn');
+  if (collapseBtn) {
+    const anyOpen = items.some(it => it.open);
+    collapseBtn.textContent = anyOpen ? '全部收合' : '全部展開';
+  }
 
   const allStores = [...new Set(items.flatMap(it => it.entries.map(e => e.store)))];
   const datalist = document.getElementById('allStores');
