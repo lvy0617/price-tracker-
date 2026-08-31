@@ -259,6 +259,16 @@
   }
   .del-btn:hover { color: var(--bad); }
   .del-btn .material-icons { font-size: 18px; margin: 0; color: inherit; }
+  .item-actions .del-btn {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 1;
+  }
   .mini {
     padding: 4px 8px;
     font-size: 12px;
@@ -1279,7 +1289,7 @@ function renderStores() {
             <div class="item-best" style="color:var(--sub);">${promos.length ? `共 ${promos.length} 筆優惠` : '還沒有設定優惠'}</div>
           </div>
           <div class="item-actions">
-            <button class="del-btn" style="font-size:15px;" onclick="event.stopPropagation(); deleteStore('${s.id}')">🗑</button>
+            <button class="del-btn" onclick="event.stopPropagation(); deleteStore('${s.id}')" title="刪除店家">🗑</button>
             <span class="chevron">▾</span>
           </div>
         </div>
@@ -1547,7 +1557,7 @@ function render() {
           <div class="item-actions">
             <button class="del-btn" onclick="event.stopPropagation(); startItemEdit('${it.id}')" title="編輯品項"><span class="material-icons">edit</span></button>
             <button class="del-btn" onclick="event.stopPropagation(); openChart('${it.id}')" title="價格走勢"><span class="material-icons">show_chart</span></button>
-            <button class="del-btn" style="font-size:15px;" onclick="event.stopPropagation(); deleteItem('${it.id}')">🗑</button>
+            <button class="del-btn" onclick="event.stopPropagation(); deleteItem('${it.id}')" title="刪除品項">🗑</button>
             <span class="chevron">▾</span>
           </div>
         </div>
