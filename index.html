@@ -472,6 +472,22 @@
 
   <div id="statsScreen" style="display:none;">
     <div class="stats-range-row" id="statsRangeButtons"></div>
+
+    <div class="stats-section">
+      <div class="stats-section-title">新增花費記錄</div>
+      <div class="entry-row">
+        <input id="expenseDate" type="date">
+        <input id="expenseAmount" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="金額">
+      </div>
+      <div class="entry-row">
+        <input id="expenseNote" type="text" placeholder="備註（例如：這次採買、水電費，可不填）">
+      </div>
+      <div class="entry-row">
+        <button class="small" id="expenseSubmitBtn" onclick="addExpense()">新增</button>
+        <button class="small ghost" id="expenseCancelBtn" style="display:none;" onclick="cancelEditExpense()">取消</button>
+      </div>
+    </div>
+
     <div id="statsContent"></div>
   </div>
 
@@ -560,9 +576,12 @@ let currentChartItemId = null;
 let currentChartRange = '1m';
 let currentScreen = 'home';
 let currentStatsRange = 'month';
+let expenses = [];
+let editingExpenseId = null;
 
 const STORAGE_KEY = 'price-tracker-items';
 const STORE_STORAGE_KEY = 'price-tracker-stores';
+const EXPENSE_STORAGE_KEY = 'price-tracker-expenses';
 
 function loadData() {
   try {
@@ -577,8 +596,16 @@ function loadData() {
   } catch (e) {
     stores = [];
   }
+  try {
+    const rawExpenses = localStorage.getItem(EXPENSE_STORAGE_KEY);
+    expenses = rawExpenses ? JSON.parse(rawExpenses) : [];
+  } catch (e) {
+    expenses = [];
+  }
   loaded = true;
   initCategorySelect();
+  const expenseDateInput = document.getElementById('expenseDate');
+  if (expenseDateInput) expenseDateInput.value = todayStr();
   render();
   renderStores();
 }
@@ -630,6 +657,14 @@ function saveStores() {
   }
 }
 
+function saveExpenses() {
+  try {
+    localStorage.setItem(EXPENSE_STORAGE_KEY, JSON.stringify(expenses));
+  } catch (e) {
+    console.error('儲存失敗', e);
+  }
+}
+
 let toastTimer = null;
 function showToast(msg) {
   const el = document.getElementById('toast');
@@ -641,7 +676,7 @@ function showToast(msg) {
 }
 
 function exportBackup() {
-  const data = { items, stores, exportedAt: new Date().toISOString() };
+  const data = { items, stores, expenses, exportedAt: new Date().toISOString() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -672,8 +707,10 @@ function handleImportFile(event) {
       if (!confirm('匯入將會覆蓋目前所有資料，確定要繼續嗎？')) return;
       items = data.items || [];
       stores = data.stores || [];
+      expenses = data.expenses || [];
       saveData();
       saveStores();
+      saveExpenses();
       render();
       renderStores();
       showToast('✅ 匯入完成');
@@ -1398,6 +1435,73 @@ function setStatsRange(key) {
   renderStats();
 }
 
+function addExpense() {
+  const dateInput = document.getElementById('expenseDate');
+  const amountInput = document.getElementById('expenseAmount');
+  const noteInput = document.getElementById('expenseNote');
+  const date = dateInput.value || todayStr();
+  const amount = parseInt(amountInput.value, 10);
+  if (isNaN(amount) || amount <= 0) return;
+  const note = (noteInput && noteInput.value.trim()) ? noteInput.value.trim() : null;
+
+  if (editingExpenseId) {
+    const ex = expenses.find(x => x.id === editingExpenseId);
+    if (ex) { ex.date = date; ex.amount = amount; ex.note = note; }
+    editingExpenseId = null;
+  } else {
+    expenses.push({ id: uid(), date, amount, note });
+  }
+
+  amountInput.value = '';
+  if (noteInput) noteInput.value = '';
+  dateInput.value = todayStr();
+  const submitBtn = document.getElementById('expenseSubmitBtn');
+  if (submitBtn) submitBtn.textContent = '新增';
+  const cancelBtn = document.getElementById('expenseCancelBtn');
+  if (cancelBtn) cancelBtn.style.display = 'none';
+
+  saveExpenses();
+  renderStats();
+}
+
+function editExpense(id) {
+  const ex = expenses.find(x => x.id === id);
+  if (!ex) return;
+  editingExpenseId = id;
+  const dateInput = document.getElementById('expenseDate');
+  const amountInput = document.getElementById('expenseAmount');
+  const noteInput = document.getElementById('expenseNote');
+  if (dateInput) dateInput.value = ex.date;
+  if (amountInput) amountInput.value = ex.amount;
+  if (noteInput) noteInput.value = ex.note || '';
+  const submitBtn = document.getElementById('expenseSubmitBtn');
+  if (submitBtn) submitBtn.textContent = '更新';
+  const cancelBtn = document.getElementById('expenseCancelBtn');
+  if (cancelBtn) cancelBtn.style.display = '';
+}
+
+function cancelEditExpense() {
+  editingExpenseId = null;
+  const dateInput = document.getElementById('expenseDate');
+  const amountInput = document.getElementById('expenseAmount');
+  const noteInput = document.getElementById('expenseNote');
+  if (amountInput) amountInput.value = '';
+  if (noteInput) noteInput.value = '';
+  if (dateInput) dateInput.value = todayStr();
+  const submitBtn = document.getElementById('expenseSubmitBtn');
+  if (submitBtn) submitBtn.textContent = '新增';
+  const cancelBtn = document.getElementById('expenseCancelBtn');
+  if (cancelBtn) cancelBtn.style.display = 'none';
+}
+
+function deleteExpense(id) {
+  if (!confirm('確定要刪除這筆花費記錄嗎？')) return;
+  expenses = expenses.filter(x => x.id !== id);
+  if (editingExpenseId === id) cancelEditExpense();
+  saveExpenses();
+  renderStats();
+}
+
 function renderStats() {
   const content = document.getElementById('statsContent');
   if (!content) return;
@@ -1410,6 +1514,9 @@ function renderStats() {
     cutoff = new Date(now.getTime() - 90 * 86400000);
   }
 
+  const filteredExpenses = expenses.filter(ex => !cutoff || new Date(ex.date) >= cutoff);
+  const totalSpend = filteredExpenses.reduce((sum, ex) => sum + ex.amount, 0);
+
   const allEntries = [];
   items.forEach(it => {
     (it.entries || []).forEach(e => {
@@ -1419,16 +1526,14 @@ function renderStats() {
     });
   });
 
-  if (allEntries.length === 0) {
+  if (allEntries.length === 0 && filteredExpenses.length === 0) {
     content.innerHTML = '<div class="empty">這個範圍內還沒有任何記錄</div>';
     return;
   }
 
-  let totalSpend = 0;
   let totalSaved = 0;
   allEntries.forEach(({ entry }) => {
     const paid = priceAtDate(entry);
-    totalSpend += paid;
     if (paid < entry.price) totalSaved += (entry.price - paid);
   });
 
@@ -1445,32 +1550,43 @@ function renderStats() {
     .sort((a, b) => b.count - a.count)
     .slice(0, 5);
 
-  const catSpend = {};
+  const catAmount = {};
   allEntries.forEach(({ item, entry }) => {
     const cat = item.category || '其他';
-    catSpend[cat] = (catSpend[cat] || 0) + priceAtDate(entry);
+    catAmount[cat] = (catAmount[cat] || 0) + priceAtDate(entry);
   });
-  const catList = Object.entries(catSpend).sort((a, b) => b[1] - a[1]);
+  const catList = Object.entries(catAmount).sort((a, b) => b[1] - a[1]);
   const maxCat = Math.max(...catList.map(c => c[1]), 1);
 
-  const storeSpend = {};
+  const storeAmount = {};
   allEntries.forEach(({ entry }) => {
-    storeSpend[entry.store] = (storeSpend[entry.store] || 0) + priceAtDate(entry);
+    storeAmount[entry.store] = (storeAmount[entry.store] || 0) + priceAtDate(entry);
   });
-  const topStores = Object.entries(storeSpend).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topStores = Object.entries(storeAmount).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  const expenseRows = filteredExpenses.slice().sort((a, b) => b.date.localeCompare(a.date)).map(ex => `
+    <div class="stats-list-row">
+      <span class="stats-list-name">${ex.date}${ex.note ? ' · ' + escapeHtml(ex.note) : ''}</span>
+      <span class="stats-list-count">NT$${ex.amount}</span>
+      <span class="disc-actions">
+        <button class="mini" onclick="editExpense('${ex.id}')">改</button>
+        <button class="mini del" onclick="deleteExpense('${ex.id}')">刪</button>
+      </span>
+    </div>
+  `).join('');
 
   content.innerHTML = `
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-label">總花費</div>
+        <div class="stat-label">總花費（自己記的）</div>
         <div class="stat-value">NT$${totalSpend}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">折扣省下</div>
+        <div class="stat-label">比價折扣省下</div>
         <div class="stat-value" style="color:var(--good);">NT$${totalSaved}</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">記錄筆數</div>
+        <div class="stat-label">比價記錄筆數</div>
         <div class="stat-value">${recordCount}</div>
       </div>
       <div class="stat-card">
@@ -1480,7 +1596,14 @@ function renderStats() {
     </div>
 
     <div class="stats-section">
-      <div class="stats-section-title">依分類花費</div>
+      <div class="stats-section-title">花費記錄</div>
+      ${expenseRows || '<div class="disc-empty">這個範圍內還沒有花費記錄</div>'}
+    </div>
+
+    ${allEntries.length ? `
+    <div class="stats-section">
+      <div class="stats-section-title">依分類比價金額</div>
+      <div class="unit-hint" style="margin-top:-4px;">以下依照比價記錄推算，不是實際花費</div>
       ${catList.map(([cat, amt]) => `
         <div class="cat-bar-row">
           <div class="cat-bar-label">${escapeHtml(cat)}</div>
@@ -1510,6 +1633,7 @@ function renderStats() {
         </div>
       `).join('')}
     </div>
+    ` : ''}
   `;
 }
 
