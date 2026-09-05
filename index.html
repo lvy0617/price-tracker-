@@ -44,6 +44,28 @@
     border-radius: 0;
   }
   .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+  .stats-range-row { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+  .stat-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+  .stat-label { font-size: 12px; color: var(--sub); margin-bottom: 4px; }
+  .stat-value { font-size: 20px; font-weight: 700; }
+
+  .stats-section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+  .stats-section-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; color: var(--ink); }
+
+  .cat-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 13px; }
+  .cat-bar-label { flex: 0 0 70px; color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cat-bar-track { flex: 1; height: 8px; background: var(--bg); border-radius: 999px; overflow: hidden; }
+  .cat-bar-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+  .cat-bar-amount { flex: 0 0 66px; text-align: right; font-weight: 600; }
+
+  .stats-list-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .stats-list-row:last-child { border-bottom: none; }
+  .stats-list-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stats-list-count { color: var(--sub); font-size: 13px; white-space: nowrap; }
+
   .promo-badge {
     font-size: 11px;
     background: #b8860b;
@@ -235,6 +257,19 @@
   .qty-input { flex: 1; min-width: 80px !important; }
   .unit-input { flex: 1.3; min-width: 100px !important; }
   .unit-hint { font-size: 12px; color: var(--sub); margin: -4px 0 8px 2px; }
+  .advanced-toggle {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 13px;
+    padding: 4px 0;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    margin-bottom: 8px;
+  }
+  .advanced-toggle:hover { text-decoration: underline; }
+  .advanced-fields { margin-bottom: 4px; }
   .unit-price { font-size: 12px; color: var(--sub); }
   .unit-price.best { color: var(--good); font-weight: 600; }
   .add-entry-btn { flex: 0 0 110px; }
@@ -386,6 +421,7 @@
   <div class="tab-bar">
     <button class="tab-btn active" id="tabHome" onclick="switchScreen('home')">首頁</button>
     <button class="tab-btn" id="tabStore" onclick="switchScreen('store')">店家</button>
+    <button class="tab-btn" id="tabStats" onclick="switchScreen('stats')">統計</button>
   </div>
 
   <div class="backup-row">
@@ -432,6 +468,11 @@
     <div class="unit-hint">在這裡管理各店家的滿額優惠（例如滿NT$399打9折、滿NT$500折NT$100），會提醒你哪些店現在有活動，但不會自動算進單一商品的比價裡</div>
     <div id="storeList"></div>
     <div id="storeEmptyState" class="empty" style="display:none;"></div>
+  </div>
+
+  <div id="statsScreen" style="display:none;">
+    <div class="stats-range-row" id="statsRangeButtons"></div>
+    <div id="statsContent"></div>
   </div>
 
   <datalist id="allStores"></datalist>
@@ -518,6 +559,7 @@ let selectedNewIcon = 'shopping_cart';
 let currentChartItemId = null;
 let currentChartRange = '1m';
 let currentScreen = 'home';
+let currentStatsRange = 'month';
 
 const STORAGE_KEY = 'price-tracker-items';
 const STORE_STORAGE_KEY = 'price-tracker-stores';
@@ -564,9 +606,12 @@ function switchScreen(screen) {
   currentScreen = screen;
   document.getElementById('homeScreen').style.display = screen === 'home' ? 'block' : 'none';
   document.getElementById('storeScreen').style.display = screen === 'store' ? 'block' : 'none';
+  document.getElementById('statsScreen').style.display = screen === 'stats' ? 'block' : 'none';
   document.getElementById('tabHome').classList.toggle('active', screen === 'home');
   document.getElementById('tabStore').classList.toggle('active', screen === 'store');
+  document.getElementById('tabStats').classList.toggle('active', screen === 'stats');
   if (screen === 'store') renderStores();
+  if (screen === 'stats') { renderStatsRangeButtons(); renderStats(); }
 }
 
 function saveData() {
@@ -855,6 +900,7 @@ function startEditEntry(itemId, entryId) {
   if (!e) return;
   it.editingEntryId = entryId;
   it.open = true;
+  if (e.brand || e.quantity || e.unit || e.note) it.advancedOpen = true;
   render();
   const brandInput = document.getElementById('brand-' + itemId);
   const storeInput = document.getElementById('store-' + itemId);
@@ -870,6 +916,12 @@ function startEditEntry(itemId, entryId) {
   if (qtyInput) qtyInput.value = e.quantity || '';
   if (unitInput) unitInput.value = e.unit || '';
   if (noteInput) noteInput.value = e.note || '';
+}
+
+function toggleAdvanced(itemId) {
+  const it = items.find(i => i.id === itemId);
+  if (it) it.advancedOpen = !it.advancedOpen;
+  render();
 }
 
 function cancelEditEntry(itemId) {
@@ -1315,6 +1367,152 @@ function renderStores() {
   }).join('');
 }
 
+/* ---------- spending stats dashboard ---------- */
+
+function discountAtDate(entry, dateStr) {
+  const list = (entry.discounts || []).filter(d => d.enabled !== false && d.start <= dateStr && (!d.end || d.end >= dateStr));
+  if (!list.length) return null;
+  list.sort((a, b) => discountPrice(entry.price, a) - discountPrice(entry.price, b));
+  return list[0];
+}
+
+function priceAtDate(entry) {
+  const d = discountAtDate(entry, entry.date);
+  return d ? discountPrice(entry.price, d) : entry.price;
+}
+
+function renderStatsRangeButtons() {
+  const wrap = document.getElementById('statsRangeButtons');
+  if (!wrap) return;
+  const ranges = [
+    { key: 'month', label: '本月' },
+    { key: '3m', label: '近3個月' },
+    { key: 'all', label: '全部' }
+  ];
+  wrap.innerHTML = ranges.map(r => `<button class="range-btn ${currentStatsRange === r.key ? 'active' : ''}" onclick="setStatsRange('${r.key}')">${r.label}</button>`).join('');
+}
+
+function setStatsRange(key) {
+  currentStatsRange = key;
+  renderStatsRangeButtons();
+  renderStats();
+}
+
+function renderStats() {
+  const content = document.getElementById('statsContent');
+  if (!content) return;
+
+  const now = new Date();
+  let cutoff = null;
+  if (currentStatsRange === 'month') {
+    cutoff = new Date(now.getFullYear(), now.getMonth(), 1);
+  } else if (currentStatsRange === '3m') {
+    cutoff = new Date(now.getTime() - 90 * 86400000);
+  }
+
+  const allEntries = [];
+  items.forEach(it => {
+    (it.entries || []).forEach(e => {
+      if (!cutoff || new Date(e.date) >= cutoff) {
+        allEntries.push({ item: it, entry: e });
+      }
+    });
+  });
+
+  if (allEntries.length === 0) {
+    content.innerHTML = '<div class="empty">這個範圍內還沒有任何記錄</div>';
+    return;
+  }
+
+  let totalSpend = 0;
+  let totalSaved = 0;
+  allEntries.forEach(({ entry }) => {
+    const paid = priceAtDate(entry);
+    totalSpend += paid;
+    if (paid < entry.price) totalSaved += (entry.price - paid);
+  });
+
+  const recordCount = allEntries.length;
+  const itemCount = items.length;
+
+  const itemCounts = {};
+  allEntries.forEach(({ item }) => {
+    itemCounts[item.id] = (itemCounts[item.id] || 0) + 1;
+  });
+  const topItems = Object.entries(itemCounts)
+    .map(([id, count]) => ({ item: items.find(i => i.id === id), count }))
+    .filter(x => x.item)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
+  const catSpend = {};
+  allEntries.forEach(({ item, entry }) => {
+    const cat = item.category || '其他';
+    catSpend[cat] = (catSpend[cat] || 0) + priceAtDate(entry);
+  });
+  const catList = Object.entries(catSpend).sort((a, b) => b[1] - a[1]);
+  const maxCat = Math.max(...catList.map(c => c[1]), 1);
+
+  const storeSpend = {};
+  allEntries.forEach(({ entry }) => {
+    storeSpend[entry.store] = (storeSpend[entry.store] || 0) + priceAtDate(entry);
+  });
+  const topStores = Object.entries(storeSpend).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+  content.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">總花費</div>
+        <div class="stat-value">NT$${totalSpend}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">折扣省下</div>
+        <div class="stat-value" style="color:var(--good);">NT$${totalSaved}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">記錄筆數</div>
+        <div class="stat-value">${recordCount}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">追蹤品項數</div>
+        <div class="stat-value">${itemCount}</div>
+      </div>
+    </div>
+
+    <div class="stats-section">
+      <div class="stats-section-title">依分類花費</div>
+      ${catList.map(([cat, amt]) => `
+        <div class="cat-bar-row">
+          <div class="cat-bar-label">${escapeHtml(cat)}</div>
+          <div class="cat-bar-track"><div class="cat-bar-fill" style="width:${Math.round((amt / maxCat) * 100)}%"></div></div>
+          <div class="cat-bar-amount">NT$${amt}</div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="stats-section">
+      <div class="stats-section-title">最常記錄的品項</div>
+      ${topItems.map(({ item, count }) => `
+        <div class="stats-list-row">
+          <span class="material-icons item-icon">${escapeHtml(item.icon || 'category')}</span>
+          <span class="stats-list-name">${escapeHtml(item.name)}</span>
+          <span class="stats-list-count">${count} 筆</span>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="stats-section">
+      <div class="stats-section-title">常光顧的店家</div>
+      ${topStores.map(([store, amt]) => `
+        <div class="stats-list-row">
+          <span class="stats-list-name">${escapeHtml(store)}</span>
+          <span class="stats-list-count">NT$${amt}</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
 /* ---------- price trend chart ---------- */
 
 function openChart(itemId) {
@@ -1563,9 +1761,6 @@ function render() {
         </div>
         <div class="item-body">
           <div class="entry-row">
-            <input id="brand-${it.id}" type="text" placeholder="牌子名稱（例如：舒潔、五月花）">
-          </div>
-          <div class="entry-row">
             <input id="store-${it.id}" type="text" placeholder="店家名稱（打過的會自動提示）" list="allStores">
             <select id="channel-${it.id}" class="channel-select">
               <option value="實體店面">🏬 實體店面</option>
@@ -1574,17 +1769,25 @@ function render() {
           </div>
           <div class="entry-row">
             <input id="price-${it.id}" class="price" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="價格">
-            <input id="qty-${it.id}" class="qty-input" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="數量">
-            <input id="unit-${it.id}" class="unit-input" type="text" placeholder="單位，如 抽/ml/g">
-          </div>
-          <div class="entry-row">
-            <input id="note-${it.id}" type="text" placeholder="備註（例如：口味、規格、心得）">
-          </div>
-          <div class="entry-row">
             <button class="small add-entry-btn" onclick="addEntry('${it.id}')">${it.editingEntryId ? '更新' : '加入'}</button>
             ${it.editingEntryId ? `<button class="small ghost" onclick="cancelEditEntry('${it.id}')">取消編輯</button>` : ''}
           </div>
-          <div class="unit-hint">數量+單位可不填；填了才能自動換算「每抽/每100ml多少錢」。折扣要等這筆記錄加入後，在下方「折扣」按鈕另外新增</div>
+          <button type="button" class="advanced-toggle" onclick="toggleAdvanced('${it.id}')">${it.advancedOpen ? '▴ 收合進階選項' : '▾ 進階選項（牌子・數量單位・備註）'}</button>
+          ${it.advancedOpen ? `
+            <div class="advanced-fields">
+              <div class="entry-row">
+                <input id="brand-${it.id}" type="text" placeholder="牌子名稱（例如：舒潔、五月花）">
+              </div>
+              <div class="entry-row">
+                <input id="qty-${it.id}" class="qty-input" type="text" inputmode="numeric" pattern="[0-9]*" oninput="intOnly(this)" placeholder="數量">
+                <input id="unit-${it.id}" class="unit-input" type="text" placeholder="單位，如 抽/ml/g">
+              </div>
+              <div class="entry-row">
+                <input id="note-${it.id}" type="text" placeholder="備註（例如：口味、規格、心得）">
+              </div>
+              <div class="unit-hint">數量+單位可不填；填了才能自動換算「每抽/每100ml多少錢」</div>
+            </div>
+          ` : ''}
           ${it.entries.length ? `
             <table>
               <thead><tr><th>店家</th><th>價格</th><th>換算單價</th><th>日期</th><th>操作</th></tr></thead>
